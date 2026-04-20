@@ -1,10 +1,12 @@
 import { Router } from "express";
-import { getUsers, upsertUser, getUserById } from "../controllers/userController.js";
+import { getUsers, upsertUser, getUserById, updateProfile, savePushToken } from "../controllers/userController.js";
 
 const router = Router();
 
-router.get("/", getUsers);          // GET  /api/users?excludeId=xxx
-router.post("/upsert", upsertUser); // POST /api/users/upsert
-router.get("/:id", getUserById);    // GET  /api/users/:id
+router.get("/",                    getUsers);
+router.post("/upsert",             upsertUser);
+router.get("/:id",                 getUserById);
+router.patch("/:id/profile",       updateProfile);
+router.post("/:id/push-token",     savePushToken);
 
 export default router;
