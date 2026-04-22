@@ -40,19 +40,23 @@ export async function getAnalytics(req, res) {
         contactCount[id] = (contactCount[id] || 0) + 1;
       }
     });
-    const topContactId = Object.entries(contactCount).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0];
+
+    const topEntry = Object.entries(contactCount).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+    const topContactId = topEntry ? topEntry[0] : null;
+
     let topContact = "None";
     if (topContactId) {
       const u = await User.findById(topContactId).select("name");
-      topContact = u?.name || "Unknown";
+      topContact = u ? u.name : "Unknown";
     }
 
-    // Avg response time (rough estimate)
-    let totalResponseMs = 0; let responseCount = 0;
-    const sentIds = new Set(sent.map((m) => m.receiverId?.toString()));
+    // Avg response time
+    let totalResponseMs = 0;
+    let responseCount = 0;
     for (const recvMsg of received) {
       const reply = sent.find((s) =>
-        s.receiverId?.toString() === recvMsg.senderId?.toString() &&
+        s.receiverId && recvMsg.senderId &&
+        s.receiverId.toString() === recvMsg.senderId.toString() &&
         new Date(s.createdAt) > new Date(recvMsg.createdAt)
       );
       if (reply) {
@@ -60,8 +64,14 @@ export async function getAnalytics(req, res) {
         responseCount++;
       }
     }
+
     const avgMs = responseCount > 0 ? totalResponseMs / responseCount : 0;
-    const avgResponseTime = avgMs === 0 ? "N/A" : avgMs < 60000 ? `${Math.round(avgMs / 1000)}s` : avgMs < 3600000 ? `${Math.round(avgMs / 60000)}m` : `${Math.round(avgMs / 3600000)}h`;
+    let avgResponseTime = "N/A";
+    if (avgMs > 0) {
+      if (avgMs < 60000) avgResponseTime = `${Math.round(avgMs / 1000)}s`;
+      else if (avgMs < 3600000) avgResponseTime = `${Math.round(avgMs / 60000)}m`;
+      else avgResponseTime = `${Math.round(avgMs / 3600000)}h`;
+    }
 
     res.json({
       totalMessages: all.length,
@@ -100,10 +110,11 @@ export async function searchMessages(req, res) {
     res.json(messages.map((m) => ({
       _id: m._id,
       message: m.message,
-      senderName: (m.senderId as any)?.name || "Unknown",
+      senderName: m.senderId ? m.senderId.name : "Unknown",
       createdAt: m.createdAt,
     })));
   } catch (err) {
+    console.error("searchMessages error:", err);
     res.status(500).json({ error: "Search failed" });
   }
 }
