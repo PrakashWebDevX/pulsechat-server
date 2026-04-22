@@ -1,9 +1,14 @@
-const onlineUsers = new Map();
+import { setOnlineUsersGetter } from "../controllers/messageController.js";
+
+const onlineUsers = new Map(); // userId → socketId
+
+// Share onlineUsers map with messageController for push notification checks
+setOnlineUsersGetter(() => onlineUsers);
 
 export function initSocket(io) {
   io.on("connection", (socket) => {
 
-    // ── Register ───────────────────────────────────────────────────────────
+    // ── Register user ──────────────────────────────────────────────────────
     socket.on("join", (userId) => {
       onlineUsers.set(userId, socket.id);
       io.emit("online_users", Array.from(onlineUsers.keys()));
@@ -17,7 +22,11 @@ export function initSocket(io) {
     socket.on("send_message", (data) => {
       try {
         const s = onlineUsers.get(data.receiverId);
-        if (s) { io.to(s).emit("receive_message", data); socket.emit("message_delivered", { messageId: data.messageId }); }
+        if (s) {
+          io.to(s).emit("receive_message", data);
+          socket.emit("message_delivered", { messageId: data.messageId });
+        }
+        // Note: push notification for offline users is handled in messageController.js
       } catch {}
     });
 
@@ -32,7 +41,7 @@ export function initSocket(io) {
       if (s) io.to(s).emit("message_read", { receiverId });
     });
 
-    // ── Reactions / Edit / Delete ──────────────────────────────────────────
+    // ── Reactions ──────────────────────────────────────────────────────────
     socket.on("message_reaction", (data) => {
       try {
         if (data.groupId) { socket.to(`group:${data.groupId}`).emit("message_reaction", data); }
@@ -40,6 +49,7 @@ export function initSocket(io) {
       } catch {}
     });
 
+    // ── Edit / Delete ──────────────────────────────────────────────────────
     socket.on("message_edit", (data) => {
       try {
         if (data.groupId) { socket.to(`group:${data.groupId}`).emit("message_edited", data); }
@@ -70,7 +80,6 @@ export function initSocket(io) {
     });
 
     // ── WebRTC Signaling ───────────────────────────────────────────────────
-    // Incoming call
     socket.on("call_user", ({ callerId, callerName, callerImage, receiverId, callType, offer }) => {
       try {
         const s = onlineUsers.get(receiverId);
@@ -79,36 +88,20 @@ export function initSocket(io) {
       } catch {}
     });
 
-    // Answer call
     socket.on("call_answer", ({ callerId, answer }) => {
-      try {
-        const s = onlineUsers.get(callerId);
-        if (s) io.to(s).emit("call_answered", { answer });
-      } catch {}
+      try { const s = onlineUsers.get(callerId); if (s) io.to(s).emit("call_answered", { answer }); } catch {}
     });
 
-    // ICE candidate exchange
     socket.on("ice_candidate", ({ targetId, candidate }) => {
-      try {
-        const s = onlineUsers.get(targetId);
-        if (s) io.to(s).emit("ice_candidate", { candidate });
-      } catch {}
+      try { const s = onlineUsers.get(targetId); if (s) io.to(s).emit("ice_candidate", { candidate }); } catch {}
     });
 
-    // End call
     socket.on("end_call", ({ targetId }) => {
-      try {
-        const s = onlineUsers.get(targetId);
-        if (s) io.to(s).emit("call_ended");
-      } catch {}
+      try { const s = onlineUsers.get(targetId); if (s) io.to(s).emit("call_ended"); } catch {}
     });
 
-    // Reject call
     socket.on("reject_call", ({ callerId }) => {
-      try {
-        const s = onlineUsers.get(callerId);
-        if (s) io.to(s).emit("call_rejected");
-      } catch {}
+      try { const s = onlineUsers.get(callerId); if (s) io.to(s).emit("call_rejected"); } catch {}
     });
 
     // ── Disconnect ─────────────────────────────────────────────────────────

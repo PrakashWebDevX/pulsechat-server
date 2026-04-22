@@ -1,5 +1,16 @@
 import Message from "../models/Message.js";
 import User from "../models/User.js";
+import { sendPushToUser } from "./pushController.js";
+
+// Track online users (shared with socket handler)
+// We import the onlineUsers map from socketHandler
+let getOnlineUsers = () => new Map();
+export function setOnlineUsersGetter(fn) {
+  getOnlineUsers = fn;
+}
+
+/** GET /api/messages/search?q=xxx&userId=xxx */
+export { searchMessages } from "./analyticsController.js";
 
 /** GET /api/messages/:userId?myId=xxx */
 export async function getMessages(req, res) {
@@ -13,11 +24,8 @@ export async function getMessages(req, res) {
         { senderId: myId, receiverId: userId },
         { senderId: userId, receiverId: myId },
       ],
-    })
-      .sort({ createdAt: 1 })
-      .select("-__v");
+    }).sort({ createdAt: 1 }).select("-__v");
 
-    // Mark all unread incoming messages as read
     await Message.updateMany(
       { senderId: userId, receiverId: myId, status: { $ne: "read" } },
       { status: "read" }
@@ -38,19 +46,17 @@ export async function sendMessage(req, res) {
     if (!senderId || !receiverId) {
       return res.status(400).json({ error: "senderId and receiverId required" });
     }
-    if (!message?.trim() && !fileUrl) {
-      return res.status(400).json({ error: "message or fileUrl required" });
-    }
 
     const [sender, receiver] = await Promise.all([
       User.findById(senderId),
       User.findById(receiverId),
     ]);
-    if (!sender || !receiver) return res.status(404).json({ error: "User not found" });
+    if (!sender || !receiver) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
     const newMsg = await Message.create({
-      senderId,
-      receiverId,
+      senderId, receiverId,
       message: message?.trim() || "",
       type: type || "text",
       fileUrl: fileUrl || "",
@@ -59,6 +65,29 @@ export async function sendMessage(req, res) {
       replyTo: replyTo || undefined,
       status: "sent",
     });
+
+    // ── Send push notification if receiver is OFFLINE ──────────────────────
+    const onlineUsers = getOnlineUsers();
+    const isReceiverOnline = onlineUsers.has(receiverId.toString());
+
+    if (!isReceiverOnline) {
+      // Determine notification body
+      let notifBody = message?.trim() || "";
+      if (type === "image") notifBody = "📷 Sent you an image";
+      else if (type === "audio") notifBody = "🎤 Sent you a voice message";
+      else if (type === "file") notifBody = `📎 Sent you a file: ${fileName || ""}`;
+      else if (!notifBody) notifBody = "New message";
+
+      await sendPushToUser(receiverId, {
+        title: sender.name,
+        body: notifBody,
+        icon: sender.image || "/icon-192.png",
+        badge: "/icon-192.png",
+        url: "/chat",
+        tag: `msg-${senderId}`,
+        senderId: senderId.toString(),
+      });
+    }
 
     res.status(201).json(newMsg);
   } catch (err) {
@@ -71,11 +100,8 @@ export async function sendMessage(req, res) {
 export async function editMessage(req, res) {
   try {
     const { message } = req.body;
-    const { id } = req.params;
-    if (!message?.trim()) return res.status(400).json({ error: "message required" });
-
     const msg = await Message.findByIdAndUpdate(
-      id,
+      req.params.id,
       { message: message.trim(), edited: true },
       { new: true }
     );
@@ -105,22 +131,13 @@ export async function deleteMessage(req, res) {
 export async function reactToMessage(req, res) {
   try {
     const { userId, emoji } = req.body;
-    const { id } = req.params;
-
-    const msg = await Message.findById(id);
+    const msg = await Message.findById(req.params.id);
     if (!msg) return res.status(404).json({ error: "Message not found" });
 
-    // Toggle: remove if same emoji exists, else add/replace
-    const existingIdx = msg.reactions.findIndex(
-      (r) => r.userId.toString() === userId
-    );
-
-    if (existingIdx !== -1) {
-      if (msg.reactions[existingIdx].emoji === emoji) {
-        msg.reactions.splice(existingIdx, 1); // remove
-      } else {
-        msg.reactions[existingIdx].emoji = emoji; // replace
-      }
+    const idx = msg.reactions.findIndex((r) => r.userId.toString() === userId);
+    if (idx !== -1) {
+      if (msg.reactions[idx].emoji === emoji) msg.reactions.splice(idx, 1);
+      else msg.reactions[idx].emoji = emoji;
     } else {
       msg.reactions.push({ userId, emoji });
     }
