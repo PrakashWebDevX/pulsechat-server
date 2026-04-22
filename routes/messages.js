@@ -1,20 +1,15 @@
 import { Router } from "express";
-import {
-  getMessages,
-  sendMessage,
-  editMessage,
-  deleteMessage,
-  reactToMessage,
-  markAsRead,
-} from "../controllers/messageController.js";
+import { getMessages, sendMessage, editMessage, deleteMessage, reactToMessage, markAsRead } from "../controllers/messageController.js";
+import { searchMessages } from "../controllers/analyticsController.js";
 
 const router = Router();
 
-router.get("/:userId", getMessages);        // GET  /api/messages/:userId?myId=xxx
-router.post("/", sendMessage);              // POST /api/messages
-router.patch("/:id/edit", editMessage);     // PATCH /api/messages/:id/edit
-router.patch("/:id/delete", deleteMessage); // PATCH /api/messages/:id/delete
-router.patch("/:id/react", reactToMessage); // PATCH /api/messages/:id/react
-router.patch("/read", markAsRead);          // PATCH /api/messages/read
+router.get("/search",      searchMessages);      // GET /api/messages/search?q=xxx&userId=xxx
+router.get("/:userId",     getMessages);         // GET /api/messages/:userId?myId=xxx
+router.post("/",           sendMessage);         // POST /api/messages
+router.patch("/:id/edit",  editMessage);
+router.patch("/:id/delete",deleteMessage);
+router.patch("/:id/react", reactToMessage);
+router.patch("/read",      markAsRead);
 
 export default router;
